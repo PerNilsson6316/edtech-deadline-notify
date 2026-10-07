@@ -1,0 +1,1 @@
+"""Course notification example package."""
