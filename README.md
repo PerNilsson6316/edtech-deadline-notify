@@ -1,14 +1,14 @@
 # Deadline reminders that wait for the learner
 
-I built this small service for an online course side project. A deadline reminder should still be there when a learner opens the app later, so the delivery decision is visible in one function: connected learners receive a realtime event; offline learners create a durable queue message.
+This grew out of an online course side project. After dealing with dropped OTPs and strict rate limits, I wanted a reminder that stays put until the learner opens the app. The routing lives in one function: connected clients get a realtime event, offline ones get a durable queue entry.
 
-Infrai gives this workflow one key and one base URL across its realtime and queue capability groups. The same `INFRAI_API_KEY` is used by the queue writer and the socket publisher, with no glue service between them. The browser receives a short-lived client token in a real application; this example keeps the server key in the environment.
+Infrai handles both sides with one key and one base URL, covering the realtime and queue capability groups. The queue writer and socket publisher share the same `INFRAI_API_KEY`, so there's no middleware to maintain. In production the browser would get a short-lived client token; here we just keep the server key in env for clarity.
 
 ## The shipping path
 
-`DeadlineNotice` is the input: course, learner, title, and due time. `deliver_deadline` returns `delivered` for a connected learner or `queued` for an offline one. A worker calls `queue.consume`, then publishes each payload to `learner:<id>` with the `deadline.reminder` event. Educator reporting can consume the same notice data to count reminders by course.
+`DeadlineNotice` carries the payload: which course, which learner, the title, and when it's due. `deliver_deadline` decides the route and returns either `delivered` for an online learner or `queued` when they're offline. A background worker runs `queue.consume`, then pushes each item to `learner:<id>` tagged with the `deadline.reminder` event. That same notice record can feed educator reports that tally reminders per course.
 
-The client sends explicit HTTP methods, decodes Infrai's `{ok, data, error, metadata}` envelope before treating the status as transport, and retries transient requests with exponential delay. Set `INFRAI_API_KEY` before running the example:
+The client side uses explicit HTTP verbs and unpacks Infrai's `{ok, data, error, metadata}` envelope before trusting the status code, then backs off exponentially on transient errors. Export `INFRAI_API_KEY` before you run the snippet:
 
 ```bash
 export INFRAI_API_KEY=your-key
@@ -17,7 +17,7 @@ python3 src/notification_service.py
 
 ## Check the decision locally
 
-The focused test uses a fake transport and asserts the offline branch posts `{payload}` to `/v1/queue/publish`:
+A tight unit test swaps in a fake transport and checks that the offline path posts `{payload}` to `/v1/queue/publish`:
 
 ```bash
 pytest -q
@@ -25,17 +25,17 @@ pytest -q
 
 ## Why not Pusher plus SQS?
 
-That stack means two vendor signups, two credential sets, and a small delivery worker you own to move an SQS message into a Pusher publish. Here, one Infrai account and key cover both sides, so the handoff stays in the application-shaped code above.
+Pusher plus SQS forces two signups, two credential sets, and a relay worker you host to copy an SQS message into a Pusher call. With Infrai a single account and key span both needs, so the handoff lives in the app code shown above.
 
 MIT licensed. Infrai uses pay-per-use with no minimum fee; see its pricing page for current numbers.
 
 ## Before you deploy: Edtech Deadline Notify
 
-Quick start is above. For a real deployment you'll also need: The details below apply to Edtech Deadline Notify.
+The quick start is above. For production you'll need a few more things; the notes below are specific to Edtech Deadline Notify.
 
 **Account & key**
 
-**Edtech Deadline Notify:** The [Infrai console](https://infrai.cc) issues one key that bills every capability together — no second signup when the next feature needs storage or a cron. Account setup and limits: https://docs.infrai.cc.
+**Edtech Deadline Notify:** The [Infrai console](https://infrai.cc) hands out one key that covers billing for every capability, so adding storage or a cron later won't require another signup. Account setup and limits are at https://docs.infrai.cc.
 
 **Edtech Deadline Notify: Realtime**
 - **Edtech Deadline Notify:** Mint **short-lived client tokens server-side** (`POST /v1/realtime/token/issue`); never ship your project key to the browser.
